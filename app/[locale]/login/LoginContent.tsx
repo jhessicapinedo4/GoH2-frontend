@@ -1,12 +1,12 @@
 'use client';
 
+import { useState, useEffect, Suspense } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link'; 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Suspense, useEffect, useState } from 'react';
 
 // Layout
 import Header from '@/components/layout/Header';
@@ -19,17 +19,18 @@ import { PasswordInput } from '@/components/ui/PasswordInput';
 import { Button } from '@/components/ui/Button';
 import Notification from '@/components/ui/Notification';
 
-// Logic
-import { useAuth } from '@/hooks/useAuth';
+// Logic: Importamos el servicio y el store DIRECTAMENTE para tener control total
+import { authService } from '@/lib/authService';
+import { useAuthStore } from '@/store/authStore';
 
-// Esquema de validación para Zod
+// Esquema de validación
 const loginSchema = z.object({
   email: z.string().email('Auth.errors.emailInvalid'),
   password: z.string().min(1, 'Auth.errors.passwordRequired'),
 });
 type LoginFormData = z.infer<typeof loginSchema>;
 
-// Iconos y FormError
+// Iconos
 const EmailIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
@@ -51,24 +52,26 @@ const FormError = ({ message }: { message?: string }) => {
   );
 };
 
-// Componente principal para usar useSearchParams
 function LoginComponent() {
   const t = useTranslations('Auth');
-  const { handleLogin, isLoading, error } = useAuth();
   const router = useRouter(); 
   const searchParams = useSearchParams();
+  
+  // Usamos el store directamente para guardar el token
+  const { setToken } = useAuthStore();
+
+  // Estados locales para controlar la carga y errores
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Lógica de Notificación
   const messageKey = searchParams.get('messageKey');
   const [showNotification, setShowNotification] = useState(!!messageKey);
 
   useEffect(() => {
-    if (messageKey) {
-      setShowNotification(true);
-    }
+    if (messageKey) setShowNotification(true);
   }, [messageKey]);
 
-  // Función para limpiar la URL después de cerrar la notificación
   const handleCloseNotification = () => {
     router.replace('/login', { scroll: false });
     setShowNotification(false);
@@ -78,15 +81,51 @@ function LoginComponent() {
     resolver: zodResolver(loginSchema),
   });
 
-  const onSubmit = (data: LoginFormData) => {
-    handleLogin(data);
+  // --- LÓGICA DE LOGIN CORREGIDA ---
+  const onSubmit = async (data: LoginFormData) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // 1. Llamada directa al servicio (Saltamos el hook que redirige mal)
+      const res = await authService.login({
+        email: data.email,
+        password: data.password
+      });
+
+      // 2. Guardar el token en el estado global
+      setToken(res.token);
+      
+      // 3. Verificar si debemos volver a la tienda
+      const callbackUrl = searchParams.get('callbackUrl');
+
+      if (callbackUrl) {
+        // CASO A: VOLVER A LA TIENDA
+        // Decodificamos la URL (ej: https://tutienda.com/checkout)
+        const targetUrl = decodeURIComponent(callbackUrl);
+        
+        // Verificamos si la URL ya tiene parámetros para usar '&' o '?'
+        const separator = targetUrl.includes('?') ? '&' : '?';
+        
+        // Redirección fuerte (window.location) para salir del dashboard
+        window.location.href = `${targetUrl}${separator}token=${res.token}`;
+      } else {
+        // CASO B: ENTRAR AL DASHBOARD (Comportamiento normal)
+        router.push('/dashboard');
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      setError(t('loginError') || 'Credenciales inválidas');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="relative min-h-screen bg-black text-white overflow-hidden">
       <Header />
       
-      {/* Notificación de Éxito al Restablecer */}
       {showNotification && messageKey && (
         <Notification 
           messageKey={messageKey} 
@@ -95,17 +134,16 @@ function LoginComponent() {
         />
       )}
 
-      {/* Contenido Principal (Dos Columnas) */}
       <div className="flex flex-col md:flex-row min-h-screen items-center justify-center px-8 pt-24 pb-24 gap-8 md:gap-12 max-w-7xl mx-auto">
         
-        {/* === Columna Izquierda (Oso) === */}
+        {/* Columna Izquierda */}
         <div className="flex-1 flex items-center justify-center w-full">
           <div className="w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96">
             <Oso /> 
           </div>
         </div>
 
-        {/* === Columna Derecha (Formulario) === */}
+        {/* Columna Derecha */}
         <div className="flex-1 flex flex-col items-center md:items-start justify-center w-full">
           <div className="w-full max-w-md">
             
@@ -115,7 +153,6 @@ function LoginComponent() {
             
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               
-              {/* Campo de Email con validación */}
               <div>
                 <Input 
                   icon={<EmailIcon />}
@@ -128,7 +165,6 @@ function LoginComponent() {
                 <FormError message={errors.email?.message} />
               </div>
               
-              {/* Campo de Password con validación */}
               <div>
                 <PasswordInput 
                   placeholder={t('password')}
@@ -163,10 +199,13 @@ function LoginComponent() {
                 {t('loginButton')}
               </Button>
               
-              {/* Link a registro */}
               <div className="text-center pt-4 text-gray-light">
                   {t('dontHaveAccount')}{' '}
-                  <Link href="/registro" className="text-primary hover:text-primary/80 font-semibold">
+                  {/* Pasamos el callbackUrl al registro también por si acaso */}
+                  <Link 
+                    href={`/registro?${searchParams.toString()}`} 
+                    className="text-primary hover:text-primary/80 font-semibold"
+                  >
                     {t('registerLink')}
                   </Link>
               </div>
@@ -181,7 +220,6 @@ function LoginComponent() {
   );
 }
 
-// Envolvemos todo el Login en Suspense
 export default function LoginContent() {
   return (
     <Suspense>
