@@ -1,11 +1,12 @@
 'use client';
 
+import { useState, useEffect, Suspense } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link'; 
+import { useRouter, useSearchParams } from 'next/navigation'; 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useState, useEffect } from 'react';
 
 // Layout
 import Header from '@/components/layout/Header';
@@ -20,8 +21,9 @@ import { Button } from '@/components/ui/Button';
 // Logic
 import { useAuth } from '@/hooks/useAuth';
 import { useOnboardingStore } from '@/store/onboardingStore';
+import { useAuthStore } from '@/store/authStore'; // Importante para leer el token
 
-// Esquema de validación para Zod
+// Esquema de validación
 const registerSchema = z.object({
   nombre: z.string().min(1, 'Auth.errors.nameRequired'),
   email: z.string().email('Auth.errors.emailInvalid'),
@@ -65,11 +67,15 @@ const FormError = ({ message }: { message?: string }) => {
   );
 };
 
-export default function RegisterContent() {
+function RegisterComponent() {
   const t = useTranslations('Auth');
   const tOnboarding = useTranslations('Auth.onboarding');
+  
   const { handleRegister, isLoading, error } = useAuth();
   const setAccountData = useOnboardingStore(state => state.setAccountData);
+  const router = useRouter();
+  const searchParams = useSearchParams(); // Hook para leer parámetros de URL
+  
   const [percentage, setPercentage] = useState(25);
   const targetPercentage = 37.5;
 
@@ -97,20 +103,45 @@ export default function RegisterContent() {
     resolver: zodResolver(registerSchema),
   });
 
-  const onSubmit = (data: RegisterFormData) => {
+  const onSubmit = async (data: RegisterFormData) => {
+    // Guardamos datos en store local (opcional para onboarding)
     setAccountData({ nombre: data.nombre, email: data.email, password: data.password });
+    
     const { confirmPassword, ...dataToRegister } = data;
-    handleRegister(dataToRegister);
+
+    // 1. Ejecutamos el registro y esperamos el resultado
+    // IMPORTANTE: handleRegister debe devolver 'true' si fue exitoso y NO redirigir por sí mismo.
+    const success = await handleRegister(dataToRegister);
+
+    if (success) {
+        // 2. Obtenemos el token fresco del store
+        const token = useAuthStore.getState().token;
+
+        // 3. Revisamos si hay una URL de callback (viniendo de la Landing Page)
+        const callbackUrl = searchParams.get('callbackUrl');
+        
+        if (callbackUrl && token) {
+            // CASO A: Redirigir de vuelta a la Landing Page para pagar
+            const targetUrl = decodeURIComponent(callbackUrl);
+            // Añadimos el token a la URL de destino
+            const separator = targetUrl.includes('?') ? '&' : '?';
+            
+            // Usamos window.location para una redirección externa completa
+            window.location.href = `${targetUrl}${separator}token=${token}`;
+        } else {
+            // CASO B: Flujo normal de Onboarding (nuevo usuario en dashboard)
+            router.push('/onboarding/paso-bienvenida');
+        }
+    }
   };
 
   return (
     <div className="relative min-h-screen bg-black text-white overflow-hidden">
       <Header />
       
-      {/* Contenido Principal (Dos Columnas) */}
       <div className="flex flex-col md:flex-row min-h-screen items-center justify-center px-8 pt-24 pb-24 gap-8 md:gap-12 max-w-7xl mx-auto">
         
-        {/* Barra de progreso superior - mejorada */}
+        {/* Barra de progreso */}
         <div className="absolute top-20 left-0 right-0 px-8 z-10">
           <div className="max-w-2xl mx-auto">
             <div className="flex items-center justify-between mb-2">
@@ -127,23 +158,19 @@ export default function RegisterContent() {
           </div>
         </div>
 
-        {/* === Columna Izquierda (Oso) === */}
+        {/* Columna Izquierda (Oso) */}
         <div className="flex-1 flex flex-col items-center justify-center w-full animate-scale-in">
           <div className="relative w-56 h-56 md:w-64 md:h-64 lg:w-72 lg:h-72">
             <Oso />
-            
-            {/* Efecto de brillo detrás del oso */}
             <div className="absolute inset-0 -z-10 flex items-center justify-center">
               <div className="w-full h-full rounded-full bg-primary/10 blur-2xl animate-pulse-glow" />
             </div>
           </div>
         </div>
 
-        {/* === Columna Derecha (Formulario) === */}
+        {/* Columna Derecha (Formulario) */}
         <div className="flex-1 flex flex-col items-center md:items-start justify-center w-full animate-fade-in">
           <div className="w-full max-w-md">
-            
-            {/* Título del Formulario */}
             <div className="mb-6">
               <h1 className="text-3xl lg:text-4xl font-bold text-white mb-1 text-center md:text-left">
                 {t('registerTitle')}
@@ -152,53 +179,28 @@ export default function RegisterContent() {
             
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5">
               
-              {/* Nombre */}
               <div className="animate-slide-in" style={{ animationDelay: '0.1s' }}>
-                <Input 
-                  id="nombre"
-                  icon={<UserIcon />}
-                  placeholder={t('name')}
-                  type="text"
-                  {...register('nombre')}
-                  isInvalid={!!errors.nombre}
-                />
+                <Input id="nombre" icon={<UserIcon />} placeholder={t('name')} type="text" {...register('nombre')} isInvalid={!!errors.nombre} />
                 <FormError message={errors.nombre?.message} />
               </div>
 
-              {/* Email */}
               <div className="animate-slide-in" style={{ animationDelay: '0.2s' }}>
-                <Input 
-                  id="email"
-                  icon={<EmailIcon />}
-                  placeholder={t('email')}
-                  type="email"
-                  {...register('email')}
-                  isInvalid={!!errors.email}
-                />
+                <Input id="email" icon={<EmailIcon />} placeholder={t('email')} type="email" {...register('email')} isInvalid={!!errors.email} />
                 <FormError message={errors.email?.message} />
               </div>
               
-              {/* Contraseña */}
               <div className="animate-slide-in" style={{ animationDelay: '0.3s' }}>
-                <PasswordInput 
-                  id="password"
-                  placeholder={t('password')}
-                  {...register('password')}
-                  isInvalid={!!errors.password}
-                />
+                <PasswordInput id="password" placeholder={t('password')} {...register('password')} isInvalid={!!errors.password} />
                 <FormError message={errors.password?.message} />
               </div>
 
-              {/* Confirmar Contraseña */}
               <div className="animate-slide-in" style={{ animationDelay: '0.4s' }}>
-                <PasswordInput 
-                  id="confirmPassword"
-                  placeholder={t('confirmPassword')}
-                  {...register('confirmPassword')}
-                  isInvalid={!!errors.confirmPassword}
-                />
+                <PasswordInput id="confirmPassword" placeholder={t('confirmPassword')} {...register('confirmPassword')} isInvalid={!!errors.confirmPassword} />
                 <FormError message={errors.confirmPassword?.message} />
               </div>
+
+              {/* Checkbox Términos (si es necesario) */}
+              {/* <div className="flex items-center">...</div> */}
 
               {error && (
                 <p role="alert" className="flex items-center justify-center text-red-500 text-sm text-center py-2">
@@ -212,10 +214,13 @@ export default function RegisterContent() {
                 </Button>
               </div>
 
-              {/* Link a login */}
               <div className="text-center pt-4 text-gray-light animate-fade-in-delayed">
                   {t('alreadyHaveAccount')}{' '}
-                  <Link href="/login" className="text-primary hover:text-primary/80 font-semibold">
+                  {/* Pasamos el callbackUrl al login por si el usuario ya tiene cuenta */}
+                  <Link 
+                    href={`/login?${searchParams.toString()}`} 
+                    className="text-primary hover:text-primary/80 font-semibold"
+                  >
                     {t('loginLink')}
                   </Link>
               </div>
@@ -226,85 +231,29 @@ export default function RegisterContent() {
       
       <Footer />
 
+      {/* Estilos CSS en JS */}
       <style jsx>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes scale-in { 0% { opacity: 0; transform: scale(0.5); } 60% { transform: scale(1.1); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes slide-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes pulse-glow { 0%, 100% { opacity: 0.3; transform: scale(0.95); } 50% { opacity: 0.5; transform: scale(1.05); } }
+        @keyframes progress-step-3 { from { width: 25%; } to { width: 37.5%; } }
 
-        @keyframes scale-in {
-          0% {
-            opacity: 0;
-            transform: scale(0.5);
-          }
-          60% {
-            transform: scale(1.1);
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-
-        @keyframes slide-in {
-          from {
-            opacity: 0;
-            transform: translateX(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-
-        @keyframes pulse-glow {
-          0%, 100% {
-            opacity: 0.3;
-            transform: scale(0.95);
-          }
-          50% {
-            opacity: 0.5;
-            transform: scale(1.05);
-          }
-        }
-
-        @keyframes progress-step-3 {
-          from {
-            width: 25%;
-          }
-          to {
-            width: 37.5%;
-          }
-        }
-
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-
-        .animate-fade-in-delayed {
-          animation: fade-in 0.8s ease-out 0.6s both;
-        }
-
-        .animate-scale-in {
-          animation: scale-in 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both;
-        }
-
-        .animate-slide-in {
-          animation: slide-in 0.5s ease-out both;
-        }
-
-        .animate-pulse-glow {
-          animation: pulse-glow 3s ease-in-out infinite;
-        }
-
-        .animate-progress-step-3 {
-          animation: progress-step-3 1s ease-out forwards;
-        }
+        .animate-fade-in { animation: fade-in 0.6s ease-out; }
+        .animate-fade-in-delayed { animation: fade-in 0.8s ease-out 0.6s both; }
+        .animate-scale-in { animation: scale-in 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }
+        .animate-slide-in { animation: slide-in 0.5s ease-out both; }
+        .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+        .animate-progress-step-3 { animation: progress-step-3 1s ease-out forwards; }
       `}</style>
     </div>
+  );
+}
+
+export default function RegisterContent() {
+  return (
+    <Suspense>
+      <RegisterComponent />
+    </Suspense>
   );
 }
