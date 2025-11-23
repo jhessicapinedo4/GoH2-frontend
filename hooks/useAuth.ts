@@ -1,64 +1,69 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation'; // Usamos el router de i18n
+// import { useRouter } from 'next/navigation'; // Usamos el router de i18n
 import { useTranslations } from 'next-intl';
 import { useAuthStore } from '@/store/authStore';
 import { authService, LoginData, RegisterData, ForgotPasswordData, ResetPasswordData } from '@/lib/authService';
-import { useOnboardingStore } from '@/store/onboardingStore'; // Importamos el store
+// import { useOnboardingStore } from '@/store/onboardingStore'; // Importamos el store
 
 /**
  * Hook para manejar la lógica de Login y Registro
  */
 export const useAuth = () => {
   const t = useTranslations('Auth');
-  const router = useRouter();
+  // const router = useRouter();
   const { setToken } = useAuthStore();
-  const resetOnboarding = useOnboardingStore(state => state.reset); // Limpiar store al inicio de un flujo
-  
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (data: LoginData) => {
+  
+  const resetOnboarding = useOnboardingStore(state => state.reset); // Limpiar store al inicio de un flujo
+  
+
+
+  const handleLogin = async (data: LoginData): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await authService.login(data);
       setToken(res.token);
-      // Redirigir al dashboard (que crearemos luego)
-      router.push('/dashboard'); 
+      // router.push('/dashboard'); // <--- ¡BORRAR ESTA LÍNEA!
+      return true; // Éxito
     } catch (err: any) {
       setError(t('loginError'));
       console.error(err);
+      return false; // Fallo
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleRegister = async (data: RegisterData) => {
+  const handleRegister = async (data: RegisterData): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
     try {
-      // 1. Registro (POST /auth/registro)
+      // 1. Registro
       await authService.register(data);
       
-      // 2. Login Automático (POST /auth/login)
+      // 2. Login Automático
       const loginData: LoginData = { email: data.email, password: data.password };
       const res = await authService.login(loginData);
 
       // 3. Guardar Token
       setToken(res.token);
 
-      // 4. Redirigir al inicio del Onboarding (Paso 1: Bienvenida)
-      router.push('/onboarding/paso-datos-basicos'); 
+      // router.push('/onboarding/paso-datos-basicos'); // <--- ¡BORRAR ESTA LÍNEA!
+      return true; // Éxito
       
     } catch (err: any) {
-      if (err.message.includes('correo ya ha sido registrado')) {
+      if (err.message?.includes('correo ya ha sido registrado')) {
         setError(t('registerError'));
       } else {
         setError(t('unknownError'));
       }
       console.error(err);
+      return false;
     } finally {
       setIsLoading(false);
     }
