@@ -1,191 +1,148 @@
-'use client';
+'// app/[locale]/login/LoginContent.tsx
+"use client";
 
+import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation'; // <--- 1. IMPORTAR useSearchParams
 import { useForm } from 'react-hook-form';
-import { useTranslations } from 'next-intl';
-import Link from 'next/link'; 
-import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { LogIn, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { z } from 'zod';
-import { Suspense, useEffect, useState } from 'react';
-
-// Layout
-import Header from '@/components/layout/Header';
-import Footer from '@/components/layout/Footer';
-import Oso from '@/components/layout/OsoInicioSesion'; 
-
-// UI
-import { Input } from '@/components/ui/Input';
-import { PasswordInput } from '@/components/ui/PasswordInput';
-import { Button } from '@/components/ui/Button';
-import Notification from '@/components/ui/Notification';
-
-// Logic
+import Input from '@/components/ui/Input';
+import Button from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
+import { useAuthStore } from '@/store/authStore'; // <--- 2. IMPORTAR STORE PARA LEER EL TOKEN
 
-// Esquema de validación para Zod
+// Esquema de validación (se mantiene igual)
 const loginSchema = z.object({
-  email: z.string().email('Auth.errors.emailInvalid'),
-  password: z.string().min(1, 'Auth.errors.passwordRequired'),
+  email: z.string().email('Email inválido'),
+  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
 });
+
 type LoginFormData = z.infer<typeof loginSchema>;
 
-// Iconos y FormError
-const EmailIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-  </svg>
-);
-const ErrorIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-  </svg>
-);
-const FormError = ({ message }: { message?: string }) => {
-  if (!message) return null;
-  const t = useTranslations();
-  return (
-    <p role="alert" className="flex items-center text-red-500 text-sm mt-1">
-      <ErrorIcon />
-      {t(message as any)}
-    </p>
-  );
-};
+export default function LoginContent() {
+  const t = useTranslations('auth');
+  const router = useRouter();
+  const searchParams = useSearchParams(); // <--- 3. OBTENER PARÁMETROS URL
+  const { login, isLoading, error } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
 
-// Componente principal para usar useSearchParams
-function LoginComponent() {
-  const t = useTranslations('Auth');
-  const { handleLogin, isLoading, error } = useAuth();
-  const router = useRouter(); 
-  const searchParams = useSearchParams();
-
-  // Lógica de Notificación
-  const messageKey = searchParams.get('messageKey');
-  const [showNotification, setShowNotification] = useState(!!messageKey);
-
-  useEffect(() => {
-    if (messageKey) {
-      setShowNotification(true);
-    }
-  }, [messageKey]);
-
-  // Función para limpiar la URL después de cerrar la notificación
-  const handleCloseNotification = () => {
-    router.replace('/login', { scroll: false });
-    setShowNotification(false);
-  };
-
-  const { register, handleSubmit, formState: { errors } } = useForm<LoginFormData>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
 
-  const onSubmit = (data: LoginFormData) => {
-    handleLogin(data);
+  const onSubmit = async (data: LoginFormData) => {
+    try {
+      // Intentamos loguear
+      await login(data.email, data.password);
+      
+      // --- INICIO LÓGICA DE REDIRECCIÓN ---
+      
+      // 1. Buscamos si hay una URL de retorno en la barra de direcciones
+      const callbackUrl = searchParams.get('callbackUrl');
+      
+      // 2. Obtenemos el token recién generado directamente del estado
+      const token = useAuthStore.getState().token;
+
+      if (callbackUrl && token) {
+        // 3. Si hay URL de retorno, decodificamos y redirigimos externamente
+        const targetUrl = decodeURIComponent(callbackUrl);
+        // Construimos la URL con el token (manejamos si ya tiene ? o no)
+        const separator = targetUrl.includes('?') ? '&' : '?';
+        
+        // ¡REDIRECCIÓN EXTERNA A LA LANDING!
+        window.location.href = `${targetUrl}${separator}token=${token}`;
+      } else {
+        // 4. Si no hay callback, flujo normal al dashboard
+        router.push('/dashboard');
+      }
+      
+      // --- FIN LÓGICA DE REDIRECCIÓN ---
+
+    } catch (err) {
+      console.error('Login error:', err);
+    }
   };
 
   return (
-    <div className="relative min-h-screen bg-black text-white overflow-hidden">
-      <Header />
-      
-      {/* Notificación de Éxito al Restablecer */}
-      {showNotification && messageKey && (
-        <Notification 
-          messageKey={messageKey} 
-          type="success"
-          onClose={handleCloseNotification} 
-        />
-      )}
-
-      {/* Contenido Principal (Dos Columnas) */}
-      <div className="flex flex-col md:flex-row min-h-screen items-center justify-center px-8 pt-24 pb-24 gap-8 md:gap-12 max-w-7xl mx-auto">
-        
-        {/* === Columna Izquierda (Oso) === */}
-        <div className="flex-1 flex items-center justify-center w-full">
-          <div className="w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96">
-            <Oso /> 
-          </div>
-        </div>
-
-        {/* === Columna Derecha (Formulario) === */}
-        <div className="flex-1 flex flex-col items-center md:items-start justify-center w-full">
-          <div className="w-full max-w-md">
-            
-            <h1 className="text-4xl lg:text-5xl font-bold text-white mb-10 text-center md:text-left">
-              {t('loginTitle')}
-            </h1>
-            
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              
-              {/* Campo de Email con validación */}
-              <div>
-                <Input 
-                  icon={<EmailIcon />}
-                  placeholder={t('email')}
-                  type="email"
-                  {...register('email')}
-                  isInvalid={!!errors.email}
-                  aria-invalid={!!errors.email}
-                />
-                <FormError message={errors.email?.message} />
-              </div>
-              
-              {/* Campo de Password con validación */}
-              <div>
-                <PasswordInput 
-                  placeholder={t('password')}
-                  {...register('password')}
-                  isInvalid={!!errors.password}
-                  aria-invalid={!!errors.password}
-                />
-                <FormError message={errors.password?.message} />
-
-                <div className="w-full text-right mt-2">
-                  <Link 
-                    href="/restablecer-password" 
-                    className="text-sm text-gray-light hover:text-white transition-colors underline"
-                  >
-                    {t('forgotPasswordTitle')}
-                  </Link>
-                </div>
-              </div>
-
-              {error && (
-                <p role="alert" className="flex items-center justify-center text-red-500 text-sm text-center py-2">
-                  <ErrorIcon /> {error}
-                </p>
-              )}
-              
-              <Button 
-                type="submit" 
-                variant="primary" 
-                isLoading={isLoading} 
-                className="w-full mt-4"
-              >
-                {t('loginButton')}
-              </Button>
-              
-              {/* Link a registro */}
-              <div className="text-center pt-4 text-gray-light">
-                  {t('dontHaveAccount')}{' '}
-                  <Link href="/registro" className="text-primary hover:text-primary/80 font-semibold">
-                    {t('registerLink')}
-                  </Link>
-              </div>
-
-            </form>
-          </div>
-        </div>
+    <div className="w-full max-w-md space-y-8">
+      <div className="text-center">
+        <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
+          {t('loginTitle')}
+        </h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+          {t('loginSubtitle')}
+        </p>
       </div>
-      
-      <Footer />
+
+      <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
+        <div className="space-y-4">
+          <Input
+            label={t('emailLabel')}
+            type="email"
+            icon={Mail}
+            placeholder={t('emailPlaceholder')}
+            error={errors.email?.message}
+            {...register('email')}
+          />
+
+          <div className="relative">
+            <Input
+              label={t('passwordLabel')}
+              type={showPassword ? 'text' : 'password'}
+              icon={Lock}
+              placeholder={t('passwordPlaceholder')}
+              error={errors.password?.message}
+              {...register('password')}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-[38px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="text-sm">
+            <Link
+              href="/restablecer-password"
+              className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400"
+            >
+              {t('forgotPassword')}
+            </Link>
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-100 dark:border-red-900/50">
+            {error}
+          </div>
+        )}
+
+        <Button type="submit" isLoading={isLoading} className="w-full">
+          {t('loginButton')} <ArrowRight className="ml-2 h-4 w-4" />
+        </Button>
+
+        <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+          {t('noAccount')}{' '}
+          <Link
+            href={`/registro?${searchParams.toString()}`} // Mantenemos el callbackUrl si cambia a registro
+            className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400"
+          >
+            {t('registerLink')}
+          </Link>
+        </p>
+      </form>
     </div>
   );
 }
-
 // Envolvemos todo el Login en Suspense
-export default function LoginContent() {
-  return (
-    <Suspense>
-      <LoginComponent />
-    </Suspense>
-  );
-}
